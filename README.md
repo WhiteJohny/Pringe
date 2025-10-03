@@ -12,8 +12,8 @@ CLI-приложение для взаимодействия с LLM на рус�
 
 ### Установка
 ```bash
-git clone <репозиторий>
-cd sentiment-analysis-cli
+git clone -b llm-cli https://github.com/WhiteJohny/Pringe llm-cli
+cd llm-cli
 pip install -r requirements.txt
 ```
 
