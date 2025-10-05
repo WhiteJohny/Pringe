@@ -13,7 +13,7 @@ CLI-приложение для анализа эмоциональной окр
 
 ### Установка
 ```bash
-git clone <ваш-репозиторий>
+git git clone -b sentiment-analysis-cli https://github.com/WhiteJohny/Pringe sentiment-analysis-cli
 cd sentiment-analysis-cli
 pip install -r requirements.txt
 ```
