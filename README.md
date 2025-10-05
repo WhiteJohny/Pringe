@@ -39,12 +39,6 @@ python main.py
 🔄 Loading models...
 📦 Loading emotion model...
 ✅ Models loaded successfully!
-🧪 Testing emotion model...
-📊 Model test results:
-   1. fear: 0.300
-   2. angry: 0.194
-   3. surprise: 0.166
-✅ Model is working correctly!
 
 🎯 SELECT MODE:
 1. Webcam analysis (real-time)
