@@ -1,6 +1,6 @@
 # 🔍 Анализ тональности текста
 
-CLI-приложение для анализа эмоциональной окраски текста на русском и английском языках.
+API для анализа эмоциональной окраски текста на русском и английском языках.
 
 ## 🌟 Возможности
 
@@ -13,41 +13,19 @@ CLI-приложение для анализа эмоциональной окр
 
 ### Установка
 ```bash
-git clone -b sentiment-analysis-cli https://github.com/WhiteJohny/Pringe sentiment-analysis-cli
-cd sentiment-analysis-cli
+git clone -b sentiment-analysis-api https://github.com/WhiteJohny/Pringe sentiment-analysis-api
+cd sentiment-analysis-api
 pip install -r requirements.txt
 ```
 
 ### Запуск
 ```bash
-python main.py
+fastapi dev main.py
 ```
 
-## 💡 Примеры работы
-```bash
-📝 Enter text to analyze > I love this product!
-⏳ Analyzing...
-
-🎯 ANALYSIS RESULTS:
-📝 Text: 'I love this product!'
-🏆 Top emotion: 😊 positive (93.49%)
-
-📊 DETAILED BREAKDOWN:
-----------------------------------------
- 1. 😊 positive    93.49%  (score: 0.9349)
- 2. 😐 neutral      5.16%  (score: 0.0516)
- 3. 😠 negative     1.36%  (score: 0.0136)
-```
-
-## 🛠 Команды
-
-* Введите текст для анализа
-
-* quit или q - выход
-
-* help - справка
-
-* clear - очистить экран
+### Endpoints
+Список можно найти в корне API: http://localhost:8000/ \
+Или в документации: http://localhost:8000/docs
 
 ## 🏗 Технологии
 
