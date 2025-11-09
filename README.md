@@ -1,22 +1,18 @@
 # DoubleAgent
 
-DoubleAgent — интеллектуальный ассистент, объединяющий функционал работы с календарём и генерации шуток.
+DoubleAgent — интеллектуальный ассистент, объединяющий функционал работы с календарём и генерации шуток. Для работы с ним можно воспользоваться API.
 
 ## Требования
 
 - Python 3.8+
 - Ollama
 - Google Calendar API
+- FastAPI
 
 ### Установка зависимостей
 
 ```bash
-pip install requests
-pip install python-dateutil
-pip install google-auth
-pip install google-auth-oauthlib
-pip install google-auth-httplib2
-pip install google-api-python-client
+pip install -r requirements.txt
 ```
 
 ## Настройка Ollama
@@ -85,3 +81,15 @@ ollama pull deepseek-r1:8b
 - ✅ Google Calendar API включен
 - ✅ OAuth 2.0 Client ID создан
 - ✅ Файл `client_secret.json` скачан и размещен в проекте
+
+## API
+
+### Запуск API
+```bash
+python fastapi_app.py
+```
+После чего API будет доступен на localhost:8000
+
+### Endpoints
+Подробно прочитать можно, например, здесь localhost:8000\docs 
+![img.png](media/img.png)* 
