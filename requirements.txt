@@ -31,3 +31,4 @@ urllib3==2.5.0
 fastapi==0.121.1
 pydantic==2.12.4
 pytest==9.0.0
+httpx==0.28.1
