@@ -3,11 +3,11 @@
 Этот проект содержит несколько
 простых реализаций
 рекомендательных систем (RS): 
-(1) Content-based recommender system
-Collaborative Recommender system:
-(2)– User-Based
-(3)– Item-Based
-(4) Popular recommender
+* (1) Content-based Recommender system
+* Collaborative Recommender system: 
+  * (2) User-Based
+  * (3) Item-Based
+* (4) Popular Recommender
 
 Dataset: MovieLens 1M Dataset.
 ### Установка
