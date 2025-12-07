@@ -2,6 +2,7 @@ import os
 import json
 import re
 import ollama
+import time
 
 from datetime import datetime, timezone, timedelta
 from dateutil import parser
@@ -360,17 +361,46 @@ class CalendarAgent:
             }}
         """
         return system_prompt
-
-
-    def get_events(self, max_results=10, days_ahead=7):
-        """Получает ближайшие события."""
-        try:
-            time_min, time_max = self._get_time_range(days_ahead)
-            events = self._fetch_calendar_events(time_min, time_max, max_results)
-            return self._format_events_response(events)
+    
+    
+    def _calculate_query_complexity(self, query):
+        """Вычисляет сложность запроса пользователя."""
+        if not query:
+            return 0.0
         
-        except Exception as e:
-            return f"❌ Ошибка при получении событий: {str(e)}"
+        words = len(query.split())
+        sentences = query.count('.') + query.count('!') + query.count('?')
+        
+        # Простая эвристика: нормализуем к диапазону 0-1
+        complexity = min((words * 0.05) + (sentences * 0.1), 1.0)
+        return round(complexity, 2)
+
+    def _calculate_data_completeness(self, summary, start_time, description):
+        """Вычисляет полноту данных события."""
+        completeness = 0
+        
+        if summary and len(summary.strip()) > 0:
+            completeness += 4
+        
+        if start_time and len(start_time.strip()) > 0:
+            completeness += 4
+        
+        if description and len(description.strip()) > 0:
+            completeness += 2
+        
+        return completeness / 10.0  # Нормализуем к 0-1
+
+    def _calculate_overall_quality(self, result, execution_time):
+        """Вычисляет общее качество обработки запроса."""
+        quality = 0.7  # Базовое качество
+        
+        if result != "Неизвестное действие":
+            quality += 0.2
+        
+        if execution_time < 2.0:  # Быстрая обработка
+            quality += 0.1
+        
+        return min(quality, 1.0)
 
 
     def _get_time_range(self, days_ahead):
@@ -420,19 +450,148 @@ class CalendarAgent:
             return dt.strftime("%d.%m.%Y")
 
 
-    def create_event(self, summary, start_time_str, end_time_str=None, description=""):
-        """Создаёт событие в календаре."""
+    def get_events(self, max_results=10, days_ahead=7):
         try:
-            start_dt = self.time_parser.parse_natural_time(start_time_str)
-            end_dt = self._determine_end_time(start_dt, end_time_str)
-            event_body = self._build_event_body(summary, start_dt, end_dt, description)
-            created_event = self.service.events().insert(calendarId='primary', body=event_body).execute()
-
-            return self._format_create_response(summary, start_dt, end_dt)
+            start_time = time.time()
+            with self.langfuse.start_as_current_observation(as_type="span", name="get-events") as trace:
+                trace.update(
+                    metadata={
+                        "max_results": max_results,
+                        "days_ahead": days_ahead,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
+                with trace.start_as_current_observation(as_type="span", name="calculate-time-range") as range_span:
+                    time_min, time_max = self._get_time_range(days_ahead)
+                    range_span.update(
+                        output={
+                            "time_min": time_min,
+                            "time_max": time_max
+                        }
+                    )
+                
+                with trace.start_as_current_observation(as_type="span", name="fetch-events") as fetch_span:
+                    events = self._fetch_calendar_events(time_min, time_max, max_results)
+                    event_count = len(events)
+                    
+                    # Метрика: количество найденных событий
+                    fetch_span.score(
+                        name="search_result_count",
+                        value=event_count,
+                        data_type="NUMERIC",
+                        comment=f"Найдено событий: {event_count}"
+                    )
+                    
+                    fetch_span.update(
+                        metadata={
+                            "event_count": event_count
+                        }
+                    )
+                
+                formatted_events = self._format_events_response(events)
+                total_time = time.time() - start_time
+                
+                # Метрика: время выполнения операции
+                trace.score(
+                    name="execution_time",
+                    value=total_time,
+                    data_type="NUMERIC",
+                    comment=f"Время получения событий: {total_time:.2f} сек"
+                )
+                
+                trace.update(
+                    output={
+                        "formatted_events": formatted_events
+                    }
+                )
+                
+                return formatted_events
         
         except Exception as e:
-            return f"❌ Ошибка при создании события: {str(e)}"
+            # Метрика: ошибка поиска
+            self.langfuse.score_current_span(
+                name="search_failure",
+                value=1,
+                data_type="NUMERIC",
+                comment=f"Ошибка получения событий: {str(e)[:100]}"
+            )
+            
+            print("get_events", e)
+            return "❌ Ошибка при получении событий"
+    
 
+    def search_events_by_title(self, title, calendar_id='primary', max_results=10):
+        try:
+            start_time = time.time()
+            with self.langfuse.start_as_current_observation(as_type="span", name="search-events") as trace:
+                trace.update(
+                    metadata={
+                        "search_title": title,
+                        "calendar_id": calendar_id,
+                        "max_results": max_results,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
+                with trace.start_as_current_observation(as_type="span", name="search-operation") as search_span:
+                    events = self._call_calendar_search(title, calendar_id, max_results)
+                    search_time = time.time() - start_time
+                    event_count = len(events)
+                    
+                    # Метрика: количество найденных событий
+                    search_span.score(
+                        name="search_result_count",
+                        value=event_count,
+                        data_type="NUMERIC",
+                        comment=f"Найдено событий: {event_count}"
+                    )
+                    
+                    # Метрика: эффективность поиска
+                    if title and max_results > 0:
+                        efficiency = min(event_count / max_results, 1.0)
+                        search_span.score(
+                            name="search_efficiency",
+                            value=efficiency,
+                            data_type="NUMERIC",
+                            comment=f"Эффективность поиска: {efficiency:.2f}"
+                        )
+                    
+                    # Метрика: время выполнения операции
+                    search_span.score(
+                        name="execution_time",
+                        value=search_time,
+                        data_type="NUMERIC",
+                        comment=f"Время поиска: {search_time:.2f} сек"
+                    )
+                    
+                    search_span.update(
+                        output={
+                            "event_count": event_count
+                        }
+                    )
+                    
+                    formatted_results = self._format_search_results(events)
+                    trace.update(
+                        output={
+                            "formatted_results": formatted_results
+                        }
+                    )
+                    
+                    return formatted_results
+
+        except Exception as e:
+            # Метрика: ошибка поиска
+            self.langfuse.score_current_span(
+                name="search_failure",
+                value=1,
+                data_type="NUMERIC",
+                comment=f"Ошибка поиска: {str(e)[:100]}"
+            )
+            
+            print("search_event", e)
+            return []
+        
 
     def _determine_end_time(self, start_dt, end_time_str):
         """Определяет время окончания (из параметра или по умолчанию)."""
@@ -460,15 +619,96 @@ class CalendarAgent:
         return f"✅ Событие создано: '{summary}'\n📅 {start_formatted} - {end_formatted}"
     
 
-    def search_events_by_title(self, title, calendar_id='primary', max_results=10):
-        """Ищет события в календаре по подстроке в названии."""
+    def create_event(self, summary, start_time_str, end_time_str=None, description=""):
         try:
-            events = self._call_calendar_search(title, calendar_id, max_results)
-            return self._format_search_results(events)
+            start_time = time.time()
+            with self.langfuse.start_as_current_observation(as_type="span", name="create-event") as trace:
+                trace.update(
+                    metadata={
+                        "summary": summary,
+                        "start_time": start_time_str,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
+                # Метрика: полнота данных события
+                data_completeness = self._calculate_data_completeness(summary, start_time_str, description)
+                trace.score(
+                    name="event_data_completeness",
+                    value=data_completeness,
+                    data_type="NUMERIC",
+                    comment=f"Полнота данных события: {data_completeness}"
+                )
+                
+                with trace.start_as_current_observation(as_type="span", name="parse-time") as time_span:
+                    start_dt = self.time_parser.parse_natural_time(start_time_str)
+                    end_dt = self._determine_end_time(start_dt, end_time_str)
+                    time_span.update(
+                        output={
+                            "start_time": start_dt.isoformat() if start_dt else None,
+                            "end_time": end_dt.isoformat() if end_dt else None
+                        }
+                    )
+                
+                if not start_dt:
+                    raise ValueError("Не удалось распознать время события")
+                
+                with trace.start_as_current_observation(as_type="span", name="build-event") as build_span:
+                    event_body = self._build_event_body(summary, start_dt, end_dt, description)
+                    build_span.update(
+                        output=event_body
+                    )
+                
+                with trace.start_as_current_observation(as_type="span", name="insert-event") as insert_span:
+                    created_event = self.service.events().insert(
+                        calendarId='primary', 
+                        body=event_body
+                    ).execute()
+                    
+                    insert_span.update(
+                        output={
+                            "event_id": created_event['id']
+                        }
+                    )
+                
+                formatted_response = self._format_create_response(summary, start_dt, end_dt)
+                total_time = time.time() - start_time
+                
+                # Метрика: время выполнения операции
+                trace.score(
+                    name="execution_time",
+                    value=total_time,
+                    data_type="NUMERIC",
+                    comment=f"Общее время создания: {total_time:.2f} сек"
+                )
+                
+                # Метрика: успешность операции
+                trace.score_trace(
+                    name="operation_success",
+                    value=1,
+                    data_type="NUMERIC",
+                    comment="Событие успешно создано"
+                )
+                
+                trace.update(
+                    output={
+                        "response": formatted_response
+                    }
+                )
+                
+                return formatted_response
         
         except Exception as e:
-            print(f"[ОШИБКА search_events_by_title] {str(e)}")
-            return []
+            # Метрика: ошибка создания
+            self.langfuse.score_current_span(
+                name="creation_failure",
+                value=1,
+                data_type="NUMERIC",
+                comment=f"Ошибка создания: {str(e)[:100]}"
+            )
+            
+            print("create_event", e)
+            return f"❌ Ошибка при создании события: {str(e)}"
 
 
     def _call_calendar_search(self, title, calendar_id, max_results):
@@ -499,33 +739,94 @@ class CalendarAgent:
 
         return result
 
-
+    
     def delete_event(self, event_id, calendar_id='primary'):
-        """Удаляет событие из календаря по ID."""
-        if not event_id:
-            return {
-                "success": False,
-                "message": "Не указан ID события для удаления."
-            }
-        
         try:
-            self.service.events().delete(
-                calendarId=calendar_id,
-                eventId=event_id
-            ).execute()
+            start_time = time.time()
+            with self.langfuse.start_as_current_observation(as_type="span", name="delete-event") as trace:
+                trace.update(
+                    metadata={
+                        "event_id": event_id,
+                        "calendar_id": calendar_id,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
+                if not event_id:
+                    # Метрика: ошибка валидации
+                    trace.score(
+                        name="validation_error",
+                        value=1,
+                        data_type="NUMERIC",
+                        comment="Отсутствует ID события"
+                    )
+                    trace.update(
+                        metadata={"error": "missing_event_id"},
+                        status="error"
+                    )
+                    return {
+                        "success": False,
+                        "message": "Не указан ID события для удаления."
+                    }
+                
+                with trace.start_as_current_observation(as_type="span", name="delete-operation") as delete_span:
+                    self.service.events().delete(
+                        calendarId=calendar_id,
+                        eventId=event_id
+                    ).execute()
+                    
+                    delete_time = time.time() - start_time
+                    
+                    # Метрика: время выполнения операции
+                    delete_span.score(
+                        name="execution_time",
+                        value=delete_time,
+                        data_type="NUMERIC",
+                        comment=f"Время удаления: {delete_time:.2f} сек"
+                    )
+                    
+                    # Метрика: успешность операции
+                    delete_span.score(
+                        name="operation_success",
+                        value=1,
+                        data_type="NUMERIC",
+                        comment="Событие успешно удалено"
+                    )
+                    
+                    delete_span.update(
+                        output={
+                            "status": "success",
+                            "event_id": event_id
+                        }
+                    )
+                    
+                    trace.update(
+                        output={
+                            "result": f"Событие с ID '{event_id}' успешно удалено."
+                        }
+                    )
+                    
+                    return {
+                        "success": True,
+                        "message": f"Событие с ID '{event_id}' успешно удалено."
+                    }
 
-            return {
-                "success": True,
-                "message": f"Событие с ID '{event_id}' успешно удалено."
-            }
-        
         except Exception as e:
+            # Метрика: ошибка удаления
+            self.langfuse.score_current_span(
+                name="delete_failure",
+                value=1,
+                data_type="NUMERIC",
+                comment=f"Ошибка удаления: {str(e)[:100]}"
+            )
+            
+            print("delete_event", e)
             return {
                 "success": False,
                 "message": f"Ошибка при удалении события: {str(e)}"
             }
 
-
+    
     def process_query(self, user_query):
         """Обрабатывает запрос пользователя, вызывает LLM и выполняет действие."""
         messages = self.get_contextual_messages(user_query)
@@ -605,7 +906,7 @@ class CalendarAgent:
             return result["message"]
         
         else:
-            return action_data.get("response", "Неизвестное действие.")
+            return action_data.get("response", "Неизвестное действие")
 
 
     def _format_events_list(self, events):

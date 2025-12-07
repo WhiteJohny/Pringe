@@ -1,7 +1,22 @@
+import os
+import time
+import logging
+
 from datetime import datetime
+from langfuse import Langfuse
+from dotenv import load_dotenv
 
 from calendar_agent import CalendarAgent
 from joker_agent import JokerAgent
+
+load_dotenv()
+
+logging.basicConfig(
+    filename='calendar_agent.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 
 class DoubleAgent(CalendarAgent, JokerAgent):
@@ -15,6 +30,12 @@ class DoubleAgent(CalendarAgent, JokerAgent):
             "jokeapi": "https://v2.jokeapi.dev/joke/Any?type=single&safe-mode",
             "official_joke": "https://official-joke-api.appspot.com/random_joke"
         }
+
+        self.langfuse = Langfuse(
+            public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+            secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+            base_url=os.getenv("LANGFUSE_BASE_URL")
+        )
 
     
     def _build_system_prompt(self):
@@ -111,43 +132,243 @@ class DoubleAgent(CalendarAgent, JokerAgent):
         """
         return system_prompt
 
-        
     
     def process_query(self, user_query):
         """Обрабатывает запрос пользователя, вызывает LLM и выполняет действие."""
         messages = self.get_contextual_messages(user_query)
+        
         try:
-            if self.detect_joke_request(user_query):
-                api_joke = self.get_joke_from_api()
+            start_time = time.time()
+            with self.langfuse.start_as_current_observation(as_type='span', name="process_query") as trace:
+                logging.info(
+                    "process_query_start"
+                )
 
-                response = f"🎭 Вот шутка для тебя:\n\n{api_joke}"
-                query = f"Пользователь попросил шутку. Я уже получил шутку из API: '{api_joke}'."
-                f"Добавь краткий веселый комментарий к этой шутке (1-2 предложения)."
-
-                messages = self.get_contextual_messages(query)
-                llm_comment = self._call_ollama(messages)['message']['content']
+                trace.update(
+                    metadata={
+                        "user_query": user_query,
+                        "model": self.model,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
                 
-                result = response + llm_comment
-                self._update_conversation_history(user_query, result)
+                # Метрика: сложность пользовательского запроса
+                query_complexity = self._calculate_query_complexity(user_query)
+                trace.score(
+                    name="query_complexity",
+                    value=query_complexity,
+                    data_type="NUMERIC",
+                    comment=f"Сложность запроса: {query_complexity}"
+                )
+                
+                if self.detect_joke_request(user_query):
+                    joke_start_time = time.time()
 
-                return f"{response}\n\n💬 {llm_comment}"
-            
-            response = self._call_ollama(messages)
-            result = response['message']['content']
-            self._update_conversation_history(user_query, result)
+                    logging.info(
+                        f"joke_request_detected - {user_query}"
+                    )
 
-            action_data = self._extract_json_from_response(result)
-            if not action_data:
-                return result
+                    with trace.start_as_current_observation(as_type='generation', name="joke-processing") as observation:
+                        logging.info(
+                            "joke_api_request"
+                        )
+                        
+                        # Получаем шутку из API
+                        api_joke = self.get_joke_from_api()
 
-            return self._execute_action(action_data)
+                        logging.info(
+                            f"joke_api_response - success: {bool(api_joke)}"
+                        )
+                        
+                        # Метрика: успешность получения шутки
+                        joke_success = 1 if api_joke else 0
+                        observation.score(
+                            name="joke_api_success",
+                            value=joke_success,
+                            data_type="NUMERIC",
+                            comment=f"Успешно получена шутка: {bool(api_joke)}"
+                        )
+                        
+                        query = (
+                            f"Пользователь попросил шутку. Я уже получил шутку из API: '{api_joke}'. "
+                            "Добавь краткий веселый комментарий к этой шутке (1-2 предложения)."
+                        )
+                        messages = self.get_contextual_messages(query)
+
+                        logging.info(
+                            f"llm_request - model: {self.model} - query_type: joke_comment"
+                        )
+
+                        llm_response = self._call_ollama(messages)
+                        llm_comment = llm_response['message']['content']
+
+                        logging.info(
+                            f"llm_response - response_length: {len(llm_comment)} - response_time: {llm_response.get('response_time', 0)}"
+                        )
+                        
+                        # Метрика: время ответа модели
+                        if 'response_time' in llm_response:
+                            observation.score(
+                                name="llm_response_time",
+                                value=llm_response['response_time'],
+                                data_type="NUMERIC",
+                                comment=f"Время ответа LLM: {llm_response['response_time']:.2f} сек"
+                            )
+                        
+                        # Метрика: длина ответа модели
+                        observation.score(
+                            name="llm_response_length",
+                            value=len(llm_comment),
+                            data_type="NUMERIC",
+                            comment=f"Длина ответа LLM: {len(llm_comment)} символов"
+                        )
+                        
+                        observation.update(
+                            input={"joke": api_joke},
+                            output={"comment": llm_comment}
+                        )
+                        
+                        result = f"🎭 Вот шутка для тебя:\n\n{api_joke}\n\n💬 {llm_comment}"
+                        self._update_conversation_history(user_query, result)
+
+                        logging.info(
+                            f"joke_processing_complete total_time: {time.time() - joke_start_time}"
+                        )
+
+                        return result
+                
+                logging.info(
+                    "general_query_processing - query_type: general"
+                )
+                
+                with trace.start_as_current_observation(as_type='generation', name="llm-response") as observation:
+                    logging.info(
+                        f"llm_request - model: {self.model} - query_type: general"
+                    )
+
+                    response = self._call_ollama(messages)
+                    result = response['message']['content']
+
+                    logging.info(
+                        f"llm_response - response_length: {len(result)} - response_time: {response.get('response_time', 0)}"
+                    )
+                    
+                    # Метрика: длина ответа модели
+                    observation.score(
+                        name="llm_response_length",
+                        value=len(result),
+                        data_type="NUMERIC",
+                        comment=f"Длина ответа LLM: {len(result)} символов"
+                    )
+                    
+                    # Метрика: время ответа модели
+                    if 'response_time' in response:
+                        observation.score(
+                            name="llm_response_time",
+                            value=response['response_time'],
+                            data_type="NUMERIC",
+                            comment=f"Время ответа LLM: {response['response_time']:.2f} сек"
+                        )
+                    
+                    observation.update(
+                        input={"query": user_query},
+                        output={"response": result}
+                    )
+                    
+                    self._update_conversation_history(user_query, result)
+                    
+                    action_data = self._extract_json_from_response(result)
+                    if not action_data:
+                        logging.info(
+                            f"query_completed_no_action - response_type: text_only"
+                        )
+
+                        # Метрика: общее качество обработки
+                        trace.score_trace(
+                            name="overall_quality",
+                            value=1.0,
+                            data_type="NUMERIC",
+                            comment="Успешная обработка без действий"
+                        )
+                        return result
+                    
+                    # Определяем тип действия
+                    action_type = action_data.get('action', 'unknown')
+
+                    logging.info(
+                        f"action_{action_type}_start - action_type: {action_type}"
+                    )
+                    
+                    with trace.start_as_current_observation(as_type='span', name=f"execute-{action_type}") as action_span:
+                        action_start_time = time.time()
+                        action_result = self._execute_action(action_data)
+                        action_time = time.time() - action_start_time
+                        
+                        # Метрика: время выполнения операции
+                        action_span.score(
+                            name="execution_time",
+                            value=action_time,
+                            data_type="NUMERIC",
+                            comment=f"Время выполнения {action_type}: {action_time:.2f} сек"
+                        )
+                        
+                        # Метрика: успешность операции
+                        success_value = 1 if action_result != "Неизвестное действие" else 0
+                        action_span.score(
+                            name="operation_success",
+                            value=success_value,
+                            data_type="NUMERIC",
+                            comment=f"Успешность {action_type}: {success_value}"
+                        )
+                        
+                        action_span.update(
+                            input={"action_data": action_data},
+                            output={"result": action_result}
+                        )
+                        
+                        # Метрика: общее качество обработки
+                        total_time = time.time() - start_time
+                        trace.score_trace(
+                            name="overall_quality",
+                            value=self._calculate_overall_quality(action_result, total_time),
+                            data_type="NUMERIC",
+                            comment="Общее качество обработки запроса"
+                        )
+
+                        logging.info(
+                            f"action_{action_type}_complete - success: {success_value} - execution_time: {action_time}"
+                        )
+                        
+                        return action_result
 
         except Exception as e:
+            logging.error(
+                f"processing_error - error_type: {type(e).__name__} - error_message: {str(e)}",
+            )
+
+            # Метрика: ошибка обработки
+            self.langfuse.score_current_trace(
+                name="processing_error",
+                value=1,
+                data_type="NUMERIC",
+                comment=f"Ошибка обработки: {str(e)[:100]}"
+            )
+            print(e)
             return f"❌ Ошибка при обработке запроса: {str(e)}"
 
 
 def main(agent):
     """Интерактивный чат с агентом."""
+    try:
+        if agent.langfuse.auth_check():
+            print("✅ Langfuse успешно подключён!")
+        else:
+            print("❌ Ошибка аутентификации")
+            return
+    except Exception as e:
+        print(f"❌ Ошибка подключения: {e}")
+        return
+
     print("🤖 Веселый & Календарный агент запущен! (для выхода введите 'выход' или 'quit')")
     print("Просто напиши что-нибудь, а если хочешь шутку - попроси!")
     print("Или")
