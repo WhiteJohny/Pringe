@@ -1,11 +1,11 @@
 import torch
 import pandas as pd
 
-from .two_tower import user_features, item_features, device
+from .two_tower import item_features, device
 
 
 class TwoTowerRecommender:
-    def __init__(self, users: pd.DataFrame, movies: pd.DataFrame):
+    def __init__(self, users: pd.DataFrame, movies: pd.DataFrame, model=None):
         users = users.copy().fillna(0)
         movies = movies.copy().fillna(0)
 
@@ -19,19 +19,21 @@ class TwoTowerRecommender:
         self.users: pd.DataFrame = users
         self.movies: pd.DataFrame = movies
 
-        self.model = torch.load("data/two_tower_model.pth", weights_only=False).to(device)
+        self.model = model or torch.load("data/two_tower_model.pth", weights_only=False).to(device)
         self.model.eval()
 
     def recommend(self, user_id, top_k=10):
-        user = (torch.Tensor(self.users.loc[self.users["user_id"] == user_id].values.flatten().tolist())
-                .to(device=device, dtype=torch.int))
+        with torch.no_grad():
+            user = (torch.Tensor(self.users.loc[self.users["user_id"] == user_id].values.flatten().tolist())
+                    .to(device=device, dtype=torch.int))
 
-        items = torch.Tensor(self.movies[item_features].to_numpy()).to(device, dtype=torch.int)
-        users = user.repeat(items.size(0), 1)
+            items = torch.Tensor(self.movies[item_features].to_numpy()).to(device, dtype=torch.int)
+            users = user.repeat(items.size(0), 1)
 
-        X = (users, items)
+            X = (users, items)
+            y = self.model(X)
 
-        self.movies["score"] = self.model(X)
-        results = self.movies.nlargest(top_k, columns="score")
+            self.movies["score"] = y.cpu().numpy()
+            results = self.movies.nlargest(top_k, columns="score")
 
-        return results["movie_id", "title", "score"]
+            return results[["movie_id", "title", "score"]]

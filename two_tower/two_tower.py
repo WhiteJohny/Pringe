@@ -7,9 +7,9 @@ print(f"Using {device} device")
 
 
 CONFIG = {
-    'user_embedding_num': 6041,
+    'user_embedding_num': 8192,
     'user_embedding_dim': 100,
-    'item_embedding_num': 3884,
+    'item_embedding_num': 4096,
     'item_embedding_dim': 100,
     'user_dense': [50, 60, 20],
     'item_dense': [50, 60, 20]

@@ -47,12 +47,12 @@ def process_dataset(ratings: pd.DataFrame, movies: pd.DataFrame, users: pd.DataF
         train_data,
         user_features,
         item_features,
-        label), batch_size=64, shuffle=True)
+        label), batch_size=4096, shuffle=True)
 
     test_dataloader = DataLoader(CustomDataset(
         test_data,
         user_features,
         item_features,
-        label), batch_size=64, shuffle=True)
+        label), batch_size=4096, shuffle=True)
 
     return train_dataloader, test_dataloader
