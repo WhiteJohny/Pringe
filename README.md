@@ -8,6 +8,7 @@
   * (2) User-Based
   * (3) Item-Based
 * (4) Popular Recommender
+* (5) Two-Tower Recommender
 
 Dataset: MovieLens 1M Dataset.
 ### Установка
