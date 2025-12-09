@@ -5,6 +5,7 @@ from utils.data_loader import load_movielens_1m
 from baseline.popularity import PopularRecommender
 from content_based.content_recommender import ContentRecommender
 from collaborative.item_based_cf import ItemBasedCF
+from two_tower import TwoTowerRecommender
 
 pd.set_option("display.max_columns", None)
 pd.set_option("display.max_colwidth", None)
@@ -36,6 +37,11 @@ def main():
     ubcf_df = movies[movies["movie_id"].isin(ubcf_ids)]
     print("\nUSER-BASED COLLABORATIVE RECOMMENDER\n")
     print(ubcf_df.to_string(index=False))
+
+    two_tower = TwoTowerRecommender(users, movies)
+    two_tower_df = two_tower.recommend(user_id=1, top_k=5)
+    print("\nTWO-TOWER RECOMMENDER\n")
+    print(two_tower_df.to_string(index=False))
 
 
 if __name__ == "__main__":
