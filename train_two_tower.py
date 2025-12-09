@@ -58,8 +58,8 @@ if __name__ == '__main__':
         model = TwoTower().to(device)
 
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-10)
-    fit(model, loss_fn, optimizer, train_dataloader, test_dataloader, epochs=1)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    fit(model, loss_fn, optimizer, train_dataloader, test_dataloader, epochs=10)
 
     torch.save(model, "data/two_tower_model.pth")
 
