@@ -67,5 +67,5 @@ class TwoTower(nn.Module):
 
         user = self.user_tower(user_embed)
         item = self.item_tower(item_embed)
-        score = torch.dot(user.reshape((-1,)), item.reshape((-1,)))
+        score = torch.einsum("ab,ab->a", user, item)
         return score

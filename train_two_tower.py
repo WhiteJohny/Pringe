@@ -13,7 +13,7 @@ def train_model(dataloader, model, loss_fn, optimizer):
 
         # Compute prediction error
         pred = model(X)
-        loss = loss_fn(pred, y.float())
+        loss = loss_fn(pred, y.float().squeeze())
 
         # Backpropagation
         loss.backward()
@@ -28,14 +28,14 @@ def train_model(dataloader, model, loss_fn, optimizer):
 def test_model(dataloader, model, loss_fn):
     num_batches = len(dataloader)
     model.eval()
-    test_loss, correct = 0, 0
+    test_loss = 0
     with torch.no_grad():
         for X, y in dataloader:
             X, y = (X[0].to(device), X[1].to(device)), y.to(device)
             pred = model(X)
-            test_loss += loss_fn(pred, y.float()).item()
+            test_loss += loss_fn(pred, y.float().squeeze()).item()
     test_loss /= num_batches
-    print(f"Test Error: \n , Avg loss: {test_loss:>8f} \n")
+    print(f"Avg test loss: {test_loss:>8f}\n")
 
 
 def fit(model, loss_fn, optimizer, train_dataloader, test_dataloader, epochs=5):
@@ -59,7 +59,7 @@ if __name__ == '__main__':
 
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-10)
-    fit(model, loss_fn, optimizer, train_dataloader, test_dataloader, epochs=100)
+    fit(model, loss_fn, optimizer, train_dataloader, test_dataloader, epochs=1)
 
     torch.save(model, "data/two_tower_model.pth")
 

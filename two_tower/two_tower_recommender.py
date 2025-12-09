@@ -33,7 +33,9 @@ class TwoTowerRecommender:
             X = (users, items)
             y = self.model(X)
 
-            self.movies["score"] = y.cpu().numpy()
+            y = y.cpu().numpy()
+
+            self.movies["score"] = y
             results = self.movies.nlargest(top_k, columns="score")
 
             return results[["movie_id", "title", "score"]]
